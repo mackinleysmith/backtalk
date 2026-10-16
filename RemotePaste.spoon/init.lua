@@ -31,6 +31,9 @@ local PASTE_CMD = [[LANG=en_US.UTF-8 pbcopy && osascript -e 'tell application "S
 local SSH_OPTS = {
   "-o", "BatchMode=yes",
   "-o", "ConnectTimeout=3",
+  -- Notice a connection that died while either Mac slept, instead of hanging on it.
+  "-o", "ServerAliveInterval=5",
+  "-o", "ServerAliveCountMax=2",
   "-o", "ControlMaster=auto",
   "-o", "ControlPath=~/.ssh/cm-remote-paste-%C",
   "-o", "ControlPersist=10m",
@@ -41,11 +44,14 @@ local function shellQuote(s)
   return "'" .. s:gsub("'", [['\'']]) .. "'"
 end
 
---- Runs `cmd` on `host`, optionally feeding it `input` on stdin. Alerts on failure.
-local function runRemotely(host, cmd, input)
+--- Runs `cmd` on `host`, optionally feeding it `input` on stdin. Calls
+--- `onDone(ok)` when it finishes, or alerts on failure if no `onDone` is given.
+local function runRemotely(host, cmd, input, onDone)
   local args = hs.fnutils.concat(hs.fnutils.copy(SSH_OPTS), { host, cmd })
   local task = hs.task.new("/usr/bin/ssh", function(code, _, stderr)
-    if code ~= 0 then
+    if onDone then
+      onDone(code == 0)
+    elseif code ~= 0 then
       hs.alert.show("RemotePaste failed: " .. (stderr ~= "" and stderr or ("exit " .. code)))
     end
   end, args)
@@ -113,23 +119,36 @@ function obj:start(config)
     return "open -g -a " .. app
   end), "; ")
 
-  -- Keep pauseApps quit on exactly the hosts that have a Screen Sharing window open.
-  local paused = {}
+  -- Keep pauseApps quit on exactly the hosts that have a Screen Sharing window
+  -- open. A host only counts as paused/resumed once its SSH command succeeds;
+  -- until then (e.g. it went to sleep mid-session) we keep retrying.
+  local wanted, paused, busy = {}, {}, {}
+  local function reconcile()
+    local pending = hs.fnutils.copy(paused)
+    for host in pairs(wanted) do pending[host] = true end
+    for host in pairs(pending) do
+      local want = wanted[host] == true
+      if (paused[host] == true) ~= want and not busy[host] then
+        busy[host] = true
+        runRemotely(host, want and quitCmd or openCmd, nil, function(ok)
+          busy[host] = nil
+          if ok then paused[host] = want or nil end
+        end)
+      end
+    end
+  end
+
   local function sync()
-    local open = {}
+    wanted = {}
     local app = hs.application.get(SCREEN_SHARING)
     for _, window in ipairs(app and app:allWindows() or {}) do
       local host = hosts[computerName(window)]
-      if host then open[host] = true end
+      if host then wanted[host] = true end
     end
-    for host in pairs(open) do
-      if not paused[host] then runRemotely(host, quitCmd) end
-    end
-    for host in pairs(paused) do
-      if not open[host] then runRemotely(host, openCmd) end
-    end
-    paused = open
+    reconcile()
   end
+
+  self.retryTimer = hs.timer.doEvery(30, reconcile)
 
   self.windowFilter = hs.window.filter.new(false):setAppFilter("Screen Sharing", {})
   self.windowFilter:subscribe({
@@ -157,7 +176,8 @@ function obj:stop()
   if self.tap then self.tap:stop() end
   if self.windowFilter then self.windowFilter:unsubscribeAll() end
   if self.appWatcher then self.appWatcher:stop() end
-  self.tap, self.windowFilter, self.appWatcher = nil, nil, nil
+  if self.retryTimer then self.retryTimer:stop() end
+  self.tap, self.windowFilter, self.appWatcher, self.retryTimer = nil, nil, nil, nil
   return self
 end
 
