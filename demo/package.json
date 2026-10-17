@@ -1,0 +1,10 @@
+{
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "render": "node capture.mjs 30 1.5 && ffmpeg -y -loglevel error -framerate 30 -i frames/%04d.png -c:v libx264 -pix_fmt yuv420p -crf 18 -preset slow -movflags +faststart backtalk-demo.mp4 && gifski --quiet --fps 15 --width 960 --quality 90 -o backtalk-demo.gif $(ls frames/*.png | awk 'NR % 2 == 1')"
+  },
+  "devDependencies": {
+    "playwright": "1.59.1"
+  }
+}

@@ -1,0 +1,173 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; width: 1280px; height: 720px; overflow: hidden; background: #000; }
+  body { font-family: -apple-system, "SF Pro Text", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+  #stage { position: relative; width: 1280px; height: 720px; overflow: hidden;
+    background: radial-gradient(120% 120% at 0% 0%, #34407a 0%, #6a4b8f 45%, #c07a8f 80%, #e3a588 100%); }
+
+  /* Local Mac menu bar */
+  .menubar { position: absolute; inset: 0 0 auto 0; height: 28px; background: rgba(255,255,255,.2);
+    backdrop-filter: blur(20px); color: #fff; font-size: 13.5px; display: flex; align-items: center; gap: 20px; padding: 0 18px; }
+  .menubar b { font-weight: 700; }
+  .menubar .right { margin-left: auto; opacity: .95; }
+
+  /* Screen Sharing window */
+  .win { position: absolute; left: 110px; top: 98px; width: 1060px; height: 512px; border-radius: 12px; overflow: hidden;
+    background: #1f1f1f; box-shadow: 0 30px 80px rgba(0,0,0,.45), 0 0 0 .5px rgba(0,0,0,.6); }
+  .tb { height: 34px; background: #2c2c2e; display: flex; align-items: center; padding: 0 14px; gap: 8px; color: #c7c7cc; font-size: 13px; }
+  .dot { width: 12px; height: 12px; border-radius: 50%; display: block; }
+  .r { background: #ff5f57; } .y { background: #febc2e; } .g { background: #28c840; }
+  .tb .t { position: absolute; left: 0; right: 0; text-align: center; pointer-events: none; }
+
+  /* The remote Mac, inside the window */
+  .remote { position: absolute; inset: 34px 0 0 0; background: linear-gradient(160deg, #0d4a5a 0%, #167a76 60%, #3a9c84 100%); }
+  .rmenubar { height: 22px; background: rgba(255,255,255,.18); color: #fff; font-size: 11.5px; display: flex; align-items: center; gap: 16px; padding: 0 14px; }
+  .rmenubar b { font-weight: 700; }
+  .editor { position: absolute; left: 150px; top: 44px; width: 760px; height: 370px; border-radius: 10px; overflow: hidden;
+    background: #fff; box-shadow: 0 18px 50px rgba(0,0,0,.35); }
+  .etb { height: 30px; background: #ececec; border-bottom: 1px solid #d6d6d6; display: flex; align-items: center; gap: 7px; padding: 0 12px; font-size: 12.5px; color: #555; }
+  .etb .dot { width: 11px; height: 11px; }
+  .etb .t { position: absolute; left: 0; right: 0; text-align: center; }
+  .doc { padding: 26px 34px; color: #1d1d1f; font-size: 25px; line-height: 1.5; }
+  .doc h1 { font-size: 30px; margin: 0 0 10px; font-weight: 700; }
+  .caret { display: inline-block; width: 2px; height: 30px; background: #1d1d1f; vertical-align: -6px; margin-left: 1px; }
+  .v { display: inline-block; color: #1d1d1f; }
+  .landed { border-radius: 4px; }
+
+  /* Callout for the stray "v" */
+  .callout { position: absolute; background: #ff3b30; color: #fff; font-weight: 600; font-size: 19px; padding: 9px 15px;
+    border-radius: 10px; box-shadow: 0 10px 30px rgba(255,59,48,.4); white-space: nowrap; }
+  .callout::before { content: ""; position: absolute; left: 22px; top: -8px; border: 8px solid transparent; border-top: 0; border-bottom-color: #ff3b30; }
+
+  /* Local dictation pill */
+  .pill { position: absolute; left: 50%; bottom: 34px; transform: translateX(-50%); background: rgba(18,18,20,.92); color: #fff;
+    border-radius: 999px; padding: 12px 22px; font-size: 18px; display: flex; gap: 11px; align-items: center;
+    box-shadow: 0 10px 30px rgba(0,0,0,.35), 0 0 0 .5px rgba(255,255,255,.12); white-space: nowrap; }
+  .bars { display: flex; gap: 3px; align-items: center; height: 20px; }
+  .bars i { display: block; width: 3px; border-radius: 2px; background: #fff; }
+
+  /* Spoken words, as captions above the pill */
+
+  /* Phase label */
+  .chip { position: absolute; top: 44px; height: 38px; display: flex; align-items: center; left: 50%; transform: translateX(-50%); z-index: 5; padding: 8px 18px; border-radius: 999px;
+    font-weight: 700; font-size: 17px; letter-spacing: .01em; white-space: nowrap; box-shadow: 0 8px 24px rgba(0,0,0,.3); }
+  .chip.before { background: #fff; color: #1d1d1f; }
+  .chip.after { background: #111; color: #fff; }
+
+  .badge { position: absolute; right: 16px; top: 40px; z-index: 4; background: #111; color: #fff; font-size: 15px; font-weight: 600;
+    padding: 8px 14px; border-radius: 10px; box-shadow: 0 10px 30px rgba(0,0,0,.35); white-space: nowrap; }
+  .badge small { font-weight: 500; opacity: .7; margin-left: 6px; }
+
+  /* End card */
+  .end { position: absolute; inset: 0; z-index: 10; background: #0c0c0e; color: #fff; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 16px; text-align: center; }
+  .end .name { font-size: 76px; font-weight: 800; letter-spacing: -.02em; }
+  .end .tag { font-size: 28px; color: #c7c7cc; }
+  .end .url { margin-top: 10px; font-family: "SF Mono", ui-monospace, Menlo, monospace; font-size: 24px; color: #7cf2b0; }
+</style></head>
+<body>
+<div id="stage">
+  <div class="menubar"><b>Screen Sharing</b><span>File</span><span>Edit</span><span>View</span><span>Window</span><span class="right">Sat 9:41 AM</span></div>
+  <div class="win">
+    <div class="tb"><i class="dot r"></i><i class="dot y"></i><i class="dot g"></i><span class="t">Studio Mac</span></div>
+    <div class="remote">
+      <div class="rmenubar"><b>TextEdit</b><span>File</span><span>Edit</span><span>Format</span></div>
+      <div class="editor">
+        <div class="etb"><i class="dot r"></i><i class="dot y"></i><i class="dot g"></i><span class="t">Weekend plans</span></div>
+        <div class="doc" id="doc"></div>
+      </div>
+    </div>
+  </div>
+  <div class="callout" id="callout">Screen Sharing ate your paste</div>
+  <div class="chip" id="chip"></div>
+  <div class="badge" id="badge">⚡ Backtalk<small>pasted over SSH</small></div>
+  <div class="pill" id="pill"><span class="bars" id="bars"></span><span id="pillText"></span></div>
+  <div class="end" id="end">
+    <div class="name">⚡ Backtalk</div>
+    <div class="tag">Dictation and clipboard pastes that survive macOS Screen Sharing</div>
+    <div class="url">github.com/mackinleysmith/backtalk</div>
+  </div>
+</div>
+<script>
+  var DURATION = 12.6; // seconds; the clip loops
+  const PREFIX = "Pick up groceries, then ";
+  const SPOKEN = "let's do pancakes Saturday and hike the ridge trail Sunday.";
+  const $ = id => document.getElementById(id);
+  const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+  const ramp = (t, a, b) => clamp((t - a) / (b - a));           // 0→1 between a and b
+  const ease = x => 1 - Math.pow(1 - x, 3);                      // easeOutCubic
+  const fade = (t, inA, inB, outA, outB) => Math.min(ease(ramp(t, inA, inB)), 1 - ramp(t, outA, outB));
+
+  for (let i = 0; i < 7; i++) $("bars").appendChild(document.createElement("i"));
+
+  // One dictation take: [start, end] of listening; paste happens right after.
+  function take(t, start) {
+    const listenEnd = start + 2.3;
+    return {
+      pill: fade(t, start, start + .25, listenEnd + .45, listenEnd + .7),
+      listening: t < listenEnd,
+      words: SPOKEN.slice(0, Math.round(SPOKEN.length * ramp(t, start + .2, listenEnd - .1))),
+      pasteAt: listenEnd + .25,
+    };
+  }
+
+  window.render = function (t) {
+    t = ((t % DURATION) + DURATION) % DURATION;
+    const after = t >= 5.2;
+    const k = take(t, after ? 5.6 : .5);
+
+    // Chip
+    $("chip").className = "chip " + (after ? "after" : "before");
+    $("chip").textContent = after ? "With Backtalk ⚡" : "Without Backtalk";
+    $("chip").style.opacity = after ? ease(ramp(t, 5.2, 5.5)) : 1 - ramp(t, 4.9, 5.2);
+
+    // Pill + captions
+    $("pill").style.opacity = k.pill;
+    $("pillText").textContent = !k.listening ? "Pasting…" : k.words ? k.words : "Listening…";
+    [...$("bars").children].forEach((bar, i) => {
+      const level = k.listening ? .35 + .65 * Math.abs(Math.sin(t * 7.3 + i * 1.7) * Math.sin(t * 3.1 + i)) : .15;
+      bar.style.height = (4 + 16 * level) + "px";
+    });
+
+    // Document
+    const caret = Math.floor(t * 2) % 2 === 0 ? '<span class="caret"></span>' : '<span class="caret" style="opacity:0"></span>';
+    let body = PREFIX;
+    if (!after && t >= k.pasteAt) {
+      const shake = Math.sin(t * 60) * 6 * (1 - ramp(t, k.pasteAt, k.pasteAt + .4));
+      body += `<span class="v" id="v" style="transform: translateX(${shake}px)">v</span>`;
+    }
+    if (after && t >= k.pasteAt) {
+      const glow = 1 - ramp(t, k.pasteAt + .6, k.pasteAt + 2);
+      body += `<span class="landed" style="background: rgba(255, 214, 10, ${.55 * glow})">${SPOKEN}</span>`;
+    }
+    $("doc").innerHTML = "<h1>Weekend plans</h1>" + body + caret;
+
+    // Callout under the stray "v"
+    const c = !after ? fade(t, k.pasteAt + .35, k.pasteAt + .6, 4.8, 5.1) : 0;
+    $("callout").style.opacity = c;
+    const v = $("v");
+    if (v && c > 0) {
+      const r = v.getBoundingClientRect();
+      $("callout").style.left = (r.left - 14) + "px";
+      $("callout").style.top = (r.bottom + 16 + 8 * (1 - c)) + "px";
+    }
+
+    // Backtalk badge pops when the real paste lands
+    const b = after ? fade(t, k.pasteAt - .05, k.pasteAt + .2, 10.1, 10.4) : 0;
+    $("badge").style.opacity = b;
+    $("badge").style.transform = `scale(${.9 + .1 * ease(ramp(t, k.pasteAt - .05, k.pasteAt + .25))})`;
+
+    // End card
+    const e = ease(ramp(t, 10.4, 10.9)) * (1 - ramp(t, 12.3, 12.6));
+    $("end").style.opacity = e;
+    $("end").style.transform = `translateY(${16 * (1 - e)}px)`;
+  };
+
+  // Live preview when opened directly (?t=3.4 freezes on a frame).
+  const fixed = new URLSearchParams(location.search).get("t");
+  if (fixed !== null) render(parseFloat(fixed));
+  else if (!window.__capture) { const t0 = performance.now(); (function loop(now) { render((now - t0) / 1000); requestAnimationFrame(loop); })(t0); }
+</script>
+</body></html>

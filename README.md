@@ -1,5 +1,7 @@
 # Backtalk
 
+![Dictating into Screen Sharing: without Backtalk the other Mac gets a lone "v"; with Backtalk the whole sentence lands](demo/backtalk-demo.gif)
+
 Dictation apps and clipboard managers don't paste correctly into Apple's Screen Sharing. You dictate a paragraph with Wispr Flow, or pick something from your clipboard manager, and the remote Mac just gets a **"v"**.
 
 These apps paste by putting text on the clipboard and pressing a fake ⌘V. Screen Sharing drops the ⌘ from keystrokes sent by apps, so only the "v" gets through.
@@ -101,6 +103,10 @@ Your clipboard is sent over SSH only, so it's encrypted in transit. Backtalk doe
 - **Text only.** If the clipboard holds an image or a file, the paste is swallowed and nothing is pasted.
 - **Apple Screen Sharing only.** Other remote desktop apps aren't detected.
 - **Every fake ⌘V into Screen Sharing goes to the remote Mac.** That's the point, but it includes apps you might not expect, such as text expanders.
+
+## Demo
+
+The animation above is made in `demo/scene.html` and rendered with `cd demo && npm install && npm run render`. That needs `ffmpeg` and `gifski` installed (`brew install ffmpeg gifski`).
 
 ## License
 
