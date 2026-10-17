@@ -58,6 +58,25 @@ The name is whatever Screen Sharing shows as the window title when you're connec
    ```
    This is the macOS process that runs SSH sessions. Without this, the paste fails with "not allowed to send keystrokes". Read [Security](#security) before doing this.
 
+### Controlling a Linux machine
+
+Apple's Screen Sharing can also connect to a Linux desktop running a VNC server. Mark that host as Linux:
+
+```lua
+hosts = {
+  ["Office Mac"] = "you@office-mac.local",
+  ["devbox:1 (you)"] = { "you@devbox.local", os = "linux" },
+},
+```
+
+For a Linux host, the window title is the VNC desktop name, for example `devbox:1 (you)`. The Linux machine needs:
+
+- an **X11** desktop session. Wayland isn't supported, because it blocks one program from typing into another.
+- `xclip` and `xdotool` (`sudo apt install xclip xdotool`).
+- an SSH server with your key.
+
+Backtalk finds the logged-in user's display on its own and pastes with Ctrl+V. Pausing dictation apps is macOS-only for now.
+
 ### Check your setup
 
 Run this from the Mac you're controlling *from*:
@@ -102,6 +121,7 @@ Your clipboard is sent over SSH only, so it's encrypted in transit. Backtalk doe
 
 - **Text only.** If the clipboard holds an image or a file, the paste is swallowed and nothing is pasted.
 - **Apple Screen Sharing only.** Other remote desktop apps aren't detected.
+- **On Linux, terminals don't paste.** Backtalk presses Ctrl+V, and most terminal apps paste with Ctrl+Shift+V instead.
 - **Every fake ⌘V into Screen Sharing goes to the remote Mac.** That's the point, but it includes apps you might not expect, such as text expanders.
 
 ## Demo

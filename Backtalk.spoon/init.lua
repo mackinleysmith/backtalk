@@ -26,6 +26,12 @@ local SOURCE_PID = hs.eventtap.event.properties.eventSourceUnixProcessID
 
 -- Copy stdin to the remote clipboard (UTF-8 safe), then paste into its focused app.
 local PASTE_CMD = [[LANG=en_US.UTF-8 pbcopy && osascript -e 'tell application "System Events" to keystroke "v" using command down']]
+-- Same for Linux (X11): find the logged-in user's display, then xclip + Ctrl+V.
+-- xclip stays running to serve the clipboard, so its output is detached or SSH would wait on it.
+local LINUX_PASTE_CMD = [[
+[ -n "$DISPLAY" ] || export DISPLAY=":$(ls /tmp/.X11-unix 2>/dev/null | sed -n 's/^X//p' | head -1)"
+[ -n "$XAUTHORITY" ] || for f in "/run/user/$(id -u)/gdm/Xauthority" "$HOME/.Xauthority"; do [ -f "$f" ] && export XAUTHORITY="$f" && break; done
+xclip -selection clipboard -in >/dev/null 2>&1 && xdotool key --clearmodifiers ctrl+v]]
 -- Exits 0 while someone is screen-sharing the remote Mac, 1 once nobody is.
 -- Only the local-address column counts, so its own outgoing sessions don't.
 local SESSION_CHECK_CMD = [[netstat -an -p tcp | awk '$4 ~ /[.]5900$/ && $6 == "ESTABLISHED" { found = 1 } END { exit !found }']]
@@ -142,6 +148,7 @@ end
 ---  * config - A table with:
 ---    * hosts - Maps each remote computer's name, as shown in the Screen Sharing
 ---      window title, to anything `ssh` accepts (alias, hostname, user@host).
+---      For a Linux (X11) host, use a table: `{ "me@linux-box", os = "linux" }`.
 ---    * pauseApps - Optional list of apps (names in /Applications) to quit on a
 ---      remote Mac while you're screen-sharing it, and reopen afterwards. Only
 ---      apps that were running get reopened. Screen Sharing forwards push-to-talk
@@ -151,7 +158,13 @@ end
 ---      up. An entry can be a table to change that, e.g.
 ---      `{ "Some App", openArgs = { "-g", "-j" }, closeWindows = false }`.
 function obj:start(config)
-  local hosts = config.hosts
+  -- hosts: computer name → SSH host; linux: SSH host → true for Linux hosts.
+  local hosts, linux = {}, {}
+  for name, entry in pairs(config.hosts) do
+    local opts = type(entry) == "table" and entry or { entry }
+    hosts[name] = opts[1]
+    if opts.os == "linux" then linux[opts[1]] = true end
+  end
   local pauseApps = config.pauseApps or DEFAULT_PAUSE_APPS
   self:stop()
 
@@ -165,7 +178,7 @@ function obj:start(config)
       if not host then
         hs.alert.show("Backtalk: no host configured for \"" .. tostring(name) .. "\"")
       elseif text and text ~= "" then
-        runRemotely(host, PASTE_CMD, text)
+        runRemotely(host, linux[host] and LINUX_PASTE_CMD or PASTE_CMD, text)
       end
     end
     return true -- swallow both halves so the remote never sees the "v"
@@ -203,7 +216,7 @@ function obj:start(config)
     local app = hs.application.get(SCREEN_SHARING)
     for _, window in ipairs(app and app:allWindows() or {}) do
       local host = hosts[computerName(window)]
-      if host then windowOpen[host] = true end
+      if host and not linux[host] then windowOpen[host] = true end -- pausing is macOS-only
     end
     for host in pairs(ended) do
       if not windowOpen[host] then ended[host] = nil end
@@ -230,7 +243,7 @@ function obj:start(config)
   -- We may have reloaded mid-session, so treat every host as possibly paused.
   -- Hosts we aren't sharing get a resume, which only reopens what PAUSED_FILE
   -- says we quit (and does nothing if it's absent).
-  for _, host in pairs(hosts) do paused[host] = true end
+  for _, host in pairs(hosts) do paused[host] = not linux[host] or nil end
 
   self.retryTimer = hs.timer.doEvery(15, checkSessions)
 
