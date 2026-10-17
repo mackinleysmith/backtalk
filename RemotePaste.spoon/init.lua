@@ -119,8 +119,11 @@ function obj:start(config)
 
   local quoted = hs.fnutils.imap(pauseApps, shellQuote)
   local quitCmd = "killall " .. table.concat(quoted, " ") .. " 2>/dev/null; true"
-  local openCmd = table.concat(hs.fnutils.imap(quoted, function(app)
-    return "open -g -a " .. app
+  -- Prefer the app's path: `open -a "Wispr Flow"` reports success over SSH but
+  -- doesn't launch it.
+  local openCmd = table.concat(hs.fnutils.imap(pauseApps, function(app)
+    local path = shellQuote("/Applications/" .. app .. ".app")
+    return "if [ -d " .. path .. " ]; then open -g " .. path .. "; else open -g -a " .. shellQuote(app) .. "; fi"
   end), "; ")
 
   -- Keep pauseApps quit on exactly the hosts we're live-sharing: a Screen Sharing
