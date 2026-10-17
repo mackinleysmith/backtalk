@@ -8,7 +8,7 @@ These apps paste by putting text on the clipboard and pressing a fake ⌘V. Scre
 
 Backtalk is a [Hammerspoon](https://www.hammerspoon.org) Spoon that catches that fake ⌘V while Screen Sharing is in front. It sends your clipboard to the remote Mac over SSH and pastes it there. This works for any app that pastes this way. That includes dictation apps like Wispr Flow, Superwhisper, VoiceInk, MacWhisper, Aqua Voice, Spokenly, Handy and Hex, and clipboard managers like Copy'em.
 
-Your own ⌘V presses, and every other app, are left alone.
+Your own ⌘V presses, and every other app, are left alone. The remote machine can also be a [Linux desktop](#controlling-a-linux-machine), on X11 or Wayland.
 
 ## How it works
 
