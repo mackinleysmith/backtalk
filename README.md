@@ -69,13 +69,17 @@ hosts = {
 },
 ```
 
-For a Linux host, the window title is the VNC desktop name, for example `devbox:1 (you)`. The Linux machine needs:
+For a Linux host, the window title is the VNC desktop name, for example `devbox:1 (you)`. The Linux machine needs an SSH server with your key, plus the tools for its desktop:
 
-- an **X11** desktop session. Wayland isn't supported, because it blocks one program from typing into another.
-- `xclip` and `xdotool` (`sudo apt install xclip xdotool`).
-- an SSH server with your key.
+| Desktop | Install |
+|---|---|
+| X11 | `xclip`, `xdotool` |
+| Wayland: Sway, Hyprland and other wlroots desktops | `wl-clipboard`, `wtype` |
+| Wayland: GNOME, KDE | `wl-clipboard`, plus `ydotool` 1.0+ with its `ydotoold` service running. *Untested.* |
 
-Backtalk finds the logged-in user's display on its own and pastes with Ctrl+V. Pausing dictation apps is macOS-only for now.
+Most GNOME and KDE setups only offer RDP, not VNC, and Apple's Screen Sharing needs a VNC server to connect. Set one up first.
+
+Backtalk finds the logged-in user's Wayland or X11 display on its own and pastes with Ctrl+V. Pausing dictation apps is macOS-only for now.
 
 ### Check your setup
 

@@ -26,12 +26,22 @@ local SOURCE_PID = hs.eventtap.event.properties.eventSourceUnixProcessID
 
 -- Copy stdin to the remote clipboard (UTF-8 safe), then paste into its focused app.
 local PASTE_CMD = [[LANG=en_US.UTF-8 pbcopy && osascript -e 'tell application "System Events" to keystroke "v" using command down']]
--- Same for Linux (X11): find the logged-in user's display, then xclip + Ctrl+V.
--- xclip stays running to serve the clipboard, so its output is detached or SSH would wait on it.
+-- Same for Linux: find the logged-in user's Wayland or X11 display, then copy + Ctrl+V.
+-- Wayland: wl-copy, then wtype (wlroots desktops); GNOME and KDE reject wtype, so
+-- fall back to ydotool (a kernel-level virtual keyboard: 29 = Ctrl, 47 = V).
+-- X11: xclip + xdotool. Clipboard tools stay running to serve the paste, so their
+-- output is detached or SSH would wait on them.
 local LINUX_PASTE_CMD = [[
-[ -n "$DISPLAY" ] || export DISPLAY=":$(ls /tmp/.X11-unix 2>/dev/null | sed -n 's/^X//p' | head -1)"
-[ -n "$XAUTHORITY" ] || for f in "/run/user/$(id -u)/gdm/Xauthority" "$HOME/.Xauthority"; do [ -f "$f" ] && export XAUTHORITY="$f" && break; done
-xclip -selection clipboard -in >/dev/null 2>&1 && xdotool key --clearmodifiers ctrl+v]]
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+[ -n "$WAYLAND_DISPLAY" ] || WAYLAND_DISPLAY=$(ls "$XDG_RUNTIME_DIR" 2>/dev/null | grep -m1 -x 'wayland-[0-9]*')
+if [ -n "$WAYLAND_DISPLAY" ]; then
+  export WAYLAND_DISPLAY
+  wl-copy >/dev/null 2>&1 && { wtype -M ctrl -k v -m ctrl 2>/dev/null || ydotool key 29:1 47:1 47:0 29:0; }
+else
+  [ -n "$DISPLAY" ] || export DISPLAY=":$(ls /tmp/.X11-unix 2>/dev/null | sed -n 's/^X//p' | head -1)"
+  [ -n "$XAUTHORITY" ] || for f in "/run/user/$(id -u)/gdm/Xauthority" "$HOME/.Xauthority"; do [ -f "$f" ] && export XAUTHORITY="$f" && break; done
+  xclip -selection clipboard -in >/dev/null 2>&1 && xdotool key --clearmodifiers ctrl+v
+fi]]
 -- Exits 0 while someone is screen-sharing the remote Mac, 1 once nobody is.
 -- Only the local-address column counts, so its own outgoing sessions don't.
 local SESSION_CHECK_CMD = [[netstat -an -p tcp | awk '$4 ~ /[.]5900$/ && $6 == "ESTABLISHED" { found = 1 } END { exit !found }']]
