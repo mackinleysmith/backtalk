@@ -4,7 +4,7 @@ Dictation apps and clipboard managers don't paste correctly into Apple's Screen 
 
 These apps paste by putting text on the clipboard and pressing a fake ⌘V. Screen Sharing drops the ⌘ from keystrokes sent by apps, so only the "v" gets through.
 
-Backtalk is a [Hammerspoon](https://www.hammerspoon.org) Spoon that catches that fake ⌘V while Screen Sharing is in front. It sends your clipboard to the remote Mac over SSH and pastes it there. This works for Wispr Flow, Copy'em, and any other app that pastes this way.
+Backtalk is a [Hammerspoon](https://www.hammerspoon.org) Spoon that catches that fake ⌘V while Screen Sharing is in front. It sends your clipboard to the remote Mac over SSH and pastes it there. This works for any app that pastes this way. That includes dictation apps like Wispr Flow, Superwhisper, VoiceInk, MacWhisper, Aqua Voice, Spokenly, Handy and Hex, and clipboard managers like Copy'em.
 
 Your own ⌘V presses, and every other app, are left alone.
 
@@ -70,14 +70,25 @@ It checks each step above and tells you what's missing.
 
 Screen Sharing also forwards your dictation hotkey. If the remote Mac runs the same dictation app, holding the key starts it on both Macs. The remote copy then listens to its own microphone and can get stuck.
 
-`pauseApps` quits those apps on a remote Mac while you're screen-sharing it. They reopen when the session ends, however it ends. That includes closing the window, the remote Mac sleeping, a dropped connection, or someone pressing Escape on the remote Mac. If the remote Mac is unreachable at that moment, Backtalk keeps retrying until it can reopen them:
+Backtalk handles this for you. While you're screen-sharing a Mac, it quits any of these apps that are running there:
+
+> Wispr Flow, superwhisper, VoiceInk, MacWhisper, Aqua Voice, Spokenly, Handy, Hex
+
+When the session ends, it reopens only the apps it quit. Sessions can end in several ways: closing the window, the remote Mac sleeping, a dropped connection, or someone pressing Escape on the remote Mac. Reopened apps start in the background, and Backtalk closes their main window so they don't pop up. If the remote Mac can't be reached at that moment, Backtalk keeps retrying. It remembers what it quit in `~/.backtalk-paused` on the remote Mac, so this also works if Hammerspoon reloads.
+
+To change the list, set `pauseApps`. Use each app's name as it appears in `/Applications`, or `{}` to turn this off. An entry can also be a table that changes how the app is reopened:
 
 ```lua
 hs.loadSpoon("Backtalk"):start({
   hosts = { ["Office Mac"] = "you@office-mac.local" },
-  pauseApps = { "Wispr Flow" },
+  pauseApps = {
+    "Wispr Flow",
+    { "Some App", openArgs = { "-g", "-j" }, closeWindows = false },
+  },
 })
 ```
+
+`openArgs` are passed to `open`. The default is `{ "-g" }`, which opens the app in the background. `closeWindows = false` leaves the app's windows open after it relaunches.
 
 ## Security
 

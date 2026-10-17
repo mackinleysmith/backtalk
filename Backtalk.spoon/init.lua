@@ -42,9 +42,62 @@ local SSH_OPTS = {
   "-o", "ControlPersist=10m",
 }
 
+-- Push-to-talk dictation apps, by their name in /Applications.
+local DEFAULT_PAUSE_APPS = {
+  "Wispr Flow", "superwhisper", "VoiceInk", "MacWhisper",
+  "Aqua Voice", "Spokenly", "Handy", "Hex",
+}
+local DEFAULT_OPEN_ARGS = { "-g" } -- launch in the background
+-- On the remote Mac: the apps we quit, so we reopen only those (even after a reload).
+local PAUSED_FILE = "~/.backtalk-paused"
+
+-- Even with `open -g`, some apps (Wispr Flow) pop their main window to the front
+-- a couple of seconds after launch. For 10s after reopening, close any standard
+-- windows of the app with this bundle ID; floating panels (the dictation pill) stay.
+local CLOSE_WINDOWS_SCRIPT = [[
+on run argv
+  set bundleID to item 1 of argv
+  tell application "System Events"
+    repeat with p in (processes whose bundle identifier is bundleID)
+      repeat with w in (windows of p whose subrole is "AXStandardWindow")
+        click (first button of w whose subrole is "AXCloseButton")
+      end repeat
+    end repeat
+  end tell
+end run]]
+
 --- Quotes `s` as a single shell word.
 local function shellQuote(s)
   return "'" .. s:gsub("'", [['\'']]) .. "'"
+end
+
+--- Shell commands that quit the running `apps` on a remote Mac (remembering
+--- which, in PAUSED_FILE) and later reopen just those.
+local function pauseCommands(apps)
+  local pause, resume = { "f=" .. PAUSED_FILE }, { "f=" .. PAUSED_FILE, '[ -f "$f" ] || exit 0' }
+  for _, entry in ipairs(apps) do
+    local opts = type(entry) == "table" and entry or { entry }
+    local name, openArgs = opts[1], opts.openArgs or DEFAULT_OPEN_ARGS
+    local path = "/Applications/" .. name .. ".app"
+    -- Matches every process inside the bundle (Wispr Flow runs a helper app too).
+    local pattern = shellQuote("^" .. path:gsub("[%^%$%(%)%.%[%]%*%+%?{}|\\]", "\\%0") .. "/")
+    local qname = shellQuote(name)
+    table.insert(pause, ("if pgrep -qf %s; then pkill -f %s; grep -qxF %s \"$f\" 2>/dev/null || echo %s >> \"$f\"; fi")
+      :format(pattern, pattern, qname, qname))
+    -- `open -a <name>` reports success over SSH without launching Wispr Flow, so use the path.
+    local open = ("open %s %s;"):format(table.concat(hs.fnutils.imap(openArgs, shellQuote), " "), shellQuote(path))
+    if opts.closeWindows ~= false then
+      local osa = table.concat(hs.fnutils.imap(hs.fnutils.split(CLOSE_WINDOWS_SCRIPT, "\n"), function(line)
+        return "-e " .. shellQuote(line)
+      end), " ")
+      open = open .. (" (id=$(defaults read %s CFBundleIdentifier); for i in $(seq 20); do sleep 0.5; osascript %s \"$id\"; done) >/dev/null 2>&1 &")
+        :format(shellQuote(path .. "/Contents/Info"), osa)
+    end
+    table.insert(resume, ("if grep -qxF %s \"$f\"; then %s fi"):format(qname, open))
+  end
+  table.insert(pause, "true")
+  table.insert(resume, 'rm -f "$f"')
+  return table.concat(pause, "; "), table.concat(resume, "; ")
 end
 
 --- Runs `cmd` on `host`, optionally feeding it `input` on stdin. Calls
@@ -89,13 +142,17 @@ end
 ---  * config - A table with:
 ---    * hosts - Maps each remote computer's name, as shown in the Screen Sharing
 ---      window title, to anything `ssh` accepts (alias, hostname, user@host).
----    * pauseApps - Optional list of app names to quit on a remote Mac while a
----      Screen Sharing window to it is open, and reopen when it closes. Useful
----      for push-to-talk dictation apps, since Screen Sharing forwards their
----      hotkey and the remote copy would start listening on its own mic.
+---    * pauseApps - Optional list of apps (names in /Applications) to quit on a
+---      remote Mac while you're screen-sharing it, and reopen afterwards. Only
+---      apps that were running get reopened. Screen Sharing forwards push-to-talk
+---      hotkeys, so otherwise the remote copy would listen on its own mic.
+---      Defaults to common dictation apps; `{}` turns it off. Reopened apps start
+---      in the background and have their main windows closed so they don't pop
+---      up. An entry can be a table to change that, e.g.
+---      `{ "Some App", openArgs = { "-g", "-j" }, closeWindows = false }`.
 function obj:start(config)
   local hosts = config.hosts
-  local pauseApps = config.pauseApps or {}
+  local pauseApps = config.pauseApps or DEFAULT_PAUSE_APPS
   self:stop()
 
   self.tap = hs.eventtap.new({ types.keyDown, types.keyUp }, function(event)
@@ -117,14 +174,7 @@ function obj:start(config)
 
   if #pauseApps == 0 then return self end
 
-  local quoted = hs.fnutils.imap(pauseApps, shellQuote)
-  local quitCmd = "killall " .. table.concat(quoted, " ") .. " 2>/dev/null; true"
-  -- Prefer the app's path: `open -a "Wispr Flow"` reports success over SSH but
-  -- doesn't launch it.
-  local openCmd = table.concat(hs.fnutils.imap(pauseApps, function(app)
-    local path = shellQuote("/Applications/" .. app .. ".app")
-    return "if [ -d " .. path .. " ]; then open -g " .. path .. "; else open -g -a " .. shellQuote(app) .. "; fi"
-  end), "; ")
+  local quitCmd, openCmd = pauseCommands(pauseApps)
 
   -- Keep pauseApps quit on exactly the hosts we're live-sharing: a Screen Sharing
   -- window is open to it, and the remote hasn't reported the session ended (a
@@ -177,8 +227,9 @@ function obj:start(config)
     reconcile()
   end
 
-  -- We may have reloaded mid-session and forgotten what we paused, so assume
-  -- everything is paused; hosts we aren't sharing get their apps reopened.
+  -- We may have reloaded mid-session, so treat every host as possibly paused.
+  -- Hosts we aren't sharing get a resume, which only reopens what PAUSED_FILE
+  -- says we quit (and does nothing if it's absent).
   for _, host in pairs(hosts) do paused[host] = true end
 
   self.retryTimer = hs.timer.doEvery(15, checkSessions)
