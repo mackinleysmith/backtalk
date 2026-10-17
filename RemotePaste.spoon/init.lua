@@ -26,6 +26,9 @@ local SOURCE_PID = hs.eventtap.event.properties.eventSourceUnixProcessID
 
 -- Copy stdin to the remote clipboard (UTF-8 safe), then paste into its focused app.
 local PASTE_CMD = [[LANG=en_US.UTF-8 pbcopy && osascript -e 'tell application "System Events" to keystroke "v" using command down']]
+-- Exits 0 while someone is screen-sharing the remote Mac, 1 once nobody is.
+-- Only the local-address column counts, so its own outgoing sessions don't.
+local SESSION_CHECK_CMD = [[netstat -an -p tcp | awk '$4 ~ /[.]5900$/ && $6 == "ESTABLISHED" { found = 1 } END { exit !found }']]
 
 -- Reuse one SSH connection so pastes after the first are near-instant.
 local SSH_OPTS = {
@@ -45,12 +48,13 @@ local function shellQuote(s)
 end
 
 --- Runs `cmd` on `host`, optionally feeding it `input` on stdin. Calls
---- `onDone(ok)` when it finishes, or alerts on failure if no `onDone` is given.
+--- `onDone(exitCode)` when it finishes (255 means SSH itself failed), or alerts
+--- on failure if no `onDone` is given.
 local function runRemotely(host, cmd, input, onDone)
   local args = hs.fnutils.concat(hs.fnutils.copy(SSH_OPTS), { host, cmd })
   local task = hs.task.new("/usr/bin/ssh", function(code, _, stderr)
     if onDone then
-      onDone(code == 0)
+      onDone(code)
     elseif code ~= 0 then
       hs.alert.show("RemotePaste failed: " .. (stderr ~= "" and stderr or ("exit " .. code)))
     end
@@ -119,36 +123,62 @@ function obj:start(config)
     return "open -g -a " .. app
   end), "; ")
 
-  -- Keep pauseApps quit on exactly the hosts that have a Screen Sharing window
-  -- open. A host only counts as paused/resumed once its SSH command succeeds;
-  -- until then (e.g. it went to sleep mid-session) we keep retrying.
-  local wanted, paused, busy = {}, {}, {}
+  -- Keep pauseApps quit on exactly the hosts we're live-sharing: a Screen Sharing
+  -- window is open to it, and the remote hasn't reported the session ended (a
+  -- window stays open after the remote presses Escape, or the network drops).
+  -- A host only counts as paused/resumed once its SSH command succeeds; until
+  -- then (e.g. it went to sleep mid-session) we keep retrying.
+  local windowOpen, ended, paused, busy, checking = {}, {}, {}, {}, {}
+
   local function reconcile()
     local pending = hs.fnutils.copy(paused)
-    for host in pairs(wanted) do pending[host] = true end
+    for host in pairs(windowOpen) do pending[host] = true end
     for host in pairs(pending) do
-      local want = wanted[host] == true
+      local want = windowOpen[host] == true and not ended[host]
       if (paused[host] == true) ~= want and not busy[host] then
         busy[host] = true
-        runRemotely(host, want and quitCmd or openCmd, nil, function(ok)
+        runRemotely(host, want and quitCmd or openCmd, nil, function(code)
           busy[host] = nil
-          if ok then paused[host] = want or nil end
+          if code == 0 then paused[host] = want or nil end
         end)
       end
     end
   end
 
   local function sync()
-    wanted = {}
+    windowOpen = {}
     local app = hs.application.get(SCREEN_SHARING)
     for _, window in ipairs(app and app:allWindows() or {}) do
       local host = hosts[computerName(window)]
-      if host then wanted[host] = true end
+      if host then windowOpen[host] = true end
+    end
+    for host in pairs(ended) do
+      if not windowOpen[host] then ended[host] = nil end
     end
     reconcile()
   end
 
-  self.retryTimer = hs.timer.doEvery(30, reconcile)
+  -- Ask each host with an open window whether it's still being shared. If SSH
+  -- itself fails we learn nothing and keep the last answer.
+  local function checkSessions()
+    for host in pairs(windowOpen) do
+      if not checking[host] then
+        checking[host] = true
+        runRemotely(host, SESSION_CHECK_CMD, nil, function(code)
+          checking[host] = nil
+          if code == 0 then ended[host] = nil elseif code == 1 then ended[host] = true end
+          reconcile()
+        end)
+      end
+    end
+    reconcile()
+  end
+
+  -- We may have reloaded mid-session and forgotten what we paused, so assume
+  -- everything is paused; hosts we aren't sharing get their apps reopened.
+  for _, host in pairs(hosts) do paused[host] = true end
+
+  self.retryTimer = hs.timer.doEvery(15, checkSessions)
 
   self.windowFilter = hs.window.filter.new(false):setAppFilter("Screen Sharing", {})
   self.windowFilter:subscribe({
