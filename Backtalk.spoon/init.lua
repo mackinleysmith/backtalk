@@ -1,11 +1,11 @@
---- === RemotePaste ===
+--- === Backtalk ===
 ---
 --- Make dictation apps and clipboard managers paste correctly inside Apple's
 --- Screen Sharing.
 ---
 --- Apps like Wispr Flow paste by putting text on the clipboard and posting a
 --- synthetic ⌘V. Screen Sharing drops the synthetic ⌘, so the remote Mac just
---- gets a "v". RemotePaste intercepts that synthetic ⌘V while Screen Sharing is
+--- gets a "v". Backtalk intercepts that synthetic ⌘V while Screen Sharing is
 --- frontmost, swallows it, and instead ships the clipboard to the remote Mac over
 --- SSH, where it's copied and pasted natively.
 ---
@@ -14,7 +14,7 @@
 local obj = {}
 obj.__index = obj
 
-obj.name = "RemotePaste"
+obj.name = "Backtalk"
 obj.version = "1.0"
 obj.author = "MacKinley Smith"
 obj.license = "MIT - https://opensource.org/licenses/MIT"
@@ -38,7 +38,7 @@ local SSH_OPTS = {
   "-o", "ServerAliveInterval=5",
   "-o", "ServerAliveCountMax=2",
   "-o", "ControlMaster=auto",
-  "-o", "ControlPath=~/.ssh/cm-remote-paste-%C",
+  "-o", "ControlPath=~/.ssh/cm-backtalk-%C",
   "-o", "ControlPersist=10m",
 }
 
@@ -56,7 +56,7 @@ local function runRemotely(host, cmd, input, onDone)
     if onDone then
       onDone(code)
     elseif code ~= 0 then
-      hs.alert.show("RemotePaste failed: " .. (stderr ~= "" and stderr or ("exit " .. code)))
+      hs.alert.show("Backtalk failed: " .. (stderr ~= "" and stderr or ("exit " .. code)))
     end
   end, args)
   if input then task:setInput(input) end
@@ -81,7 +81,7 @@ local function isSyntheticPasteIntoScreenSharing(event)
   return app ~= nil and app:bundleID() == SCREEN_SHARING
 end
 
---- RemotePaste:start(config) -> RemotePaste
+--- Backtalk:start(config) -> Backtalk
 --- Method
 --- Starts intercepting pastes into Screen Sharing.
 ---
@@ -106,7 +106,7 @@ function obj:start(config)
       local host = name and hosts[name]
       local text = hs.pasteboard.getContents()
       if not host then
-        hs.alert.show("RemotePaste: no host configured for \"" .. tostring(name) .. "\"")
+        hs.alert.show("Backtalk: no host configured for \"" .. tostring(name) .. "\"")
       elseif text and text ~= "" then
         runRemotely(host, PASTE_CMD, text)
       end
@@ -202,7 +202,7 @@ function obj:start(config)
   return self
 end
 
---- RemotePaste:stop() -> RemotePaste
+--- Backtalk:stop() -> Backtalk
 --- Method
 --- Stops intercepting pastes and watching Screen Sharing windows.
 function obj:stop()

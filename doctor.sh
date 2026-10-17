@@ -1,5 +1,5 @@
 #!/bin/bash
-# Checks that RemotePaste can paste from this Mac into a remote Mac.
+# Checks that Backtalk can paste from this Mac into a remote Mac.
 # Usage: ./doctor.sh <ssh-host>    (the same host you put in your config)
 
 host="$1"
@@ -18,10 +18,10 @@ else
   fail "Hammerspoon is not installed" "Install it from https://www.hammerspoon.org"
 fi
 
-if [ -d ~/.hammerspoon/Spoons/RemotePaste.spoon ]; then
-  pass "RemotePaste.spoon is installed"
+if [ -d ~/.hammerspoon/Spoons/Backtalk.spoon ]; then
+  pass "Backtalk.spoon is installed"
 else
-  fail "RemotePaste.spoon is not installed" "Copy RemotePaste.spoon into ~/.hammerspoon/Spoons/"
+  fail "Backtalk.spoon is not installed" "Copy Backtalk.spoon into ~/.hammerspoon/Spoons/"
 fi
 
 if ssh -o BatchMode=yes -o ConnectTimeout=5 "$host" true 2>/dev/null; then
